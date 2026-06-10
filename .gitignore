@@ -4,9 +4,6 @@
 *.test
 *.out
 
-# Generated proto
-/gen/
-
 # Embedded frontend (built into binary)
 /internal/frontend/dist/
 
@@ -18,6 +15,7 @@
 /data/
 /darkside.toml
 /darkside.yaml
+.env
 
 # Editor
 .idea/
