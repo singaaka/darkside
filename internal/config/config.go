@@ -53,7 +53,7 @@ func (c *Config) applyDefaults() {
 		c.DataDir = "/data"
 	}
 	if c.NomadAddr == "" {
-		c.NomadAddr = "http://host.docker.internal:4646"
+		c.NomadAddr = "http://nomad:4646"
 	}
 	if c.DockerHost == "" {
 		c.DockerHost = "unix:///var/run/docker.sock"

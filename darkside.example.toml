@@ -11,10 +11,9 @@ data_dir = "/data"
 # What darkside binds to inside its container. Traefik fronts this.
 listen = ":8080"
 
-# Nomad HTTP API. Nomad runs with network_mode: host, so we reach it via the
-# host-gateway alias. On Docker Desktop host.docker.internal exists natively;
-# on Linux the compose file adds it via extra_hosts.
-nomad_addr = "http://host.docker.internal:4646"
+# Nomad HTTP API. Nomad runs on the same compose bridge network, so we reach
+# it by service name.
+nomad_addr = "http://nomad:4646"
 
 # Docker daemon endpoint. The mounted unix socket is the default.
 docker_host = "unix:///var/run/docker.sock"

@@ -7,13 +7,15 @@
 #                                                DARKSIDE_BASIC_AUTH, ACME_EMAIL)
 #   3. docker compose up -d --build
 #
-# DARKSIDE_HOST is just the hostname part (e.g. darkside.hotelstack.co).
-# external_url in darkside.toml is the full URL with scheme — darkside emits
-# it as the GitHub webhook/manifest callback target.
+# All three containers — traefik, nomad, darkside — share the `darkside`
+# bridge network and reach each other by compose service name. Apps deployed
+# via nomad also land on this network (the docker driver is told to use
+# `network_mode = "darkside"` per task by the deployer), so traefik can route
+# to them by container name with no host-side port mapping.
 
 services:
   traefik:
-    image: traefik:v3.5
+    image: traefik:v3.7.4
     container_name: darkside-traefik
     restart: unless-stopped
     command:
@@ -23,8 +25,6 @@ services:
       #   - web      :80  used for the ACME http-01 challenge + redirect to https
       #   - websecure:443 production traffic (HTTPS)
       #   - debug    :8000 catch-all that always hits darkside, no Host check.
-      #                    Open this from inside your network to debug routing
-      #                    without DNS / TLS in the picture.
       - --entryPoints.web.address=:80
       - --entryPoints.web.http.redirections.entryPoint.to=websecure
       - --entryPoints.web.http.redirections.entryPoint.scheme=https
@@ -38,7 +38,7 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedByDefault=false
       - --providers.nomad=true
-      - --providers.nomad.endpoint.address=http://host.docker.internal:4646
+      - --providers.nomad.endpoint.address=http://nomad:4646
       - --providers.nomad.exposedByDefault=false
       - --log.level=INFO
       - --accessLog=true
@@ -53,24 +53,25 @@ services:
       - ./data/traefik:/data
     networks:
       - darkside
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - nomad
 
   nomad:
-    image: hashicorp/nomad:1.9
+    image: hashicorp/nomad:2.0
     container_name: darkside-nomad
     restart: unless-stopped
+    # Privileged + cap_add for nomad's cgroup management and docker driver use.
     privileged: true
-    network_mode: host
-    pid: host
-    ipc: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./configs/nomad.hcl:/etc/nomad.d/nomad.hcl:ro
       - ./data/nomad:/opt/nomad/data
       - /tmp:/tmp
+    networks:
+      - darkside
+    ports:
+      # Optional: expose the nomad UI/API on the host for direct access.
+      - "4646:4646"
     command:
       - agent
       - -config=/etc/nomad.d/nomad.hcl
@@ -91,8 +92,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - darkside
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     labels:
       - traefik.enable=true
       # ── Debug catch-all on :8000 ─────────────────────────────────────────
@@ -109,7 +108,6 @@ services:
       - traefik.http.routers.darkside-tls.middlewares=darkside-auth@docker
       - traefik.http.routers.darkside-tls.service=darkside
       # ── Webhook bypass (HTTPS, no auth, higher priority) ─────────────────
-      # GitHub posts here; signature verify gates the handler.
       - traefik.http.routers.darkside-webhook.rule=Host(`${DARKSIDE_HOST}`) && PathPrefix(`/webhooks/`)
       - traefik.http.routers.darkside-webhook.entrypoints=websecure
       - traefik.http.routers.darkside-webhook.tls.certresolver=letsencrypt
@@ -121,5 +119,8 @@ services:
 
 networks:
   darkside:
+    # Pin the name so nomad's docker driver can attach allocs to it by name.
+    # If you rename here, also update the deployer's network_mode template
+    # constant in internal/deployer/nomadjob.go.
     name: darkside
     driver: bridge

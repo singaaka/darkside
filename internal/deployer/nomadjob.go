@@ -10,6 +10,12 @@ import (
 	"github.com/singaaka/darkside/internal/manifest"
 )
 
+// dockerNetwork is the compose bridge that everything in darkside lives on:
+// traefik, darkside itself, nomad, and (per the docker config emitted below)
+// every alloc nomad spawns. Keep this in sync with `networks.darkside.name` in
+// docker-compose.yml.
+const dockerNetwork = "darkside"
+
 // nomadJobInput is the template input for the HCL2 nomad job template.
 type nomadJobInput struct {
 	JobName        string
@@ -20,9 +26,10 @@ type nomadJobInput struct {
 	HealthInterval string
 	HealthTimeout  string
 	Image          string
-	Command        string            // optional, overrides image CMD
-	Tags           []string          // service tags (traefik etc.)
-	Env            map[string]string // injected as task env
+	Command        string
+	Tags           []string
+	Env            map[string]string
+	Network        string
 }
 
 // hclQuoted turns a Go string into an HCL2 double-quoted literal. HCL2's
@@ -40,57 +47,59 @@ func hclQuoted(s string) string {
 	return `"` + r.Replace(s) + `"`
 }
 
+// The template puts the service block INSIDE the task and uses
+// `address_mode = "driver"`. That tells nomad to advertise the container's
+// IP on the docker network rather than a host-mapped port — which is the
+// whole point of having allocs share the `darkside` bridge with traefik.
 const nomadJobTmpl = `job "{{.JobName}}" {
   datacenters = ["{{.Datacenter}}"]
   type        = "service"
 
   update {
-    max_parallel     = 1
-    health_check     = "checks"
-    min_healthy_time = "10s"
-    healthy_deadline = "5m"
+    max_parallel      = 1
+    health_check      = "checks"
+    min_healthy_time  = "10s"
+    healthy_deadline  = "5m"
     progress_deadline = "10m"
-    auto_revert      = true
-    canary           = 0
+    auto_revert       = true
+    canary            = 0
   }
 
   group "app" {
     count = {{.Count}}
 
-    network {
-      port "http" {
-        to = {{.Port}}
-      }
-    }
-
-    service {
-      name     = "{{.JobName}}"
-      provider = "nomad"
-      port     = "http"
-      tags     = [
-{{range .Tags}}        {{quoted .}},
-{{end}}      ]
-
-      check {
-        type     = "http"
-        path     = {{quoted .HealthPath}}
-        port     = "http"
-        interval = {{quoted .HealthInterval}}
-        timeout  = {{quoted .HealthTimeout}}
-      }
-    }
-
     task "app" {
       driver = "docker"
       config {
-        image = {{quoted .Image}}
-        ports = ["http"]
+        image        = {{quoted .Image}}
+        network_mode = {{quoted .Network}}
 {{if .Command}}        command = "sh"
-        args = ["-c", {{quoted .Command}}]
+        args    = ["-c", {{quoted .Command}}]
 {{end}}      }
+
+      service {
+        name         = "{{.JobName}}"
+        provider     = "nomad"
+        port         = "{{.Port}}"
+        address_mode = "driver"
+        tags = [
+{{range .Tags}}          {{quoted .}},
+{{end}}        ]
+
+        check {
+          type         = "http"
+          path         = {{quoted .HealthPath}}
+          port         = "{{.Port}}"
+          interval     = {{quoted .HealthInterval}}
+          timeout      = {{quoted .HealthTimeout}}
+          address_mode = "driver"
+        }
+      }
+
       env {
 {{range $k, $v := .Env}}        {{$k}} = {{quoted $v}}
 {{end}}      }
+
       resources {
         cpu    = 200
         memory = 256
@@ -120,7 +129,6 @@ func RenderNomadJob(jobName, datacenter, image string, m *manifest.Manifest, env
 		healthPath = "/"
 	}
 
-	// Deterministic env iteration.
 	keys := make([]string, 0, len(envMap))
 	for k := range envMap {
 		keys = append(keys, k)
@@ -131,7 +139,6 @@ func RenderNomadJob(jobName, datacenter, image string, m *manifest.Manifest, env
 		sortedEnv[k] = envMap[k]
 	}
 
-	// Stripped tags — drop empty + dedupe to be polite.
 	tags := make([]string, 0, len(m.Deploy.TraefikTags))
 	seen := map[string]struct{}{}
 	for _, t := range m.Deploy.TraefikTags {
@@ -158,6 +165,7 @@ func RenderNomadJob(jobName, datacenter, image string, m *manifest.Manifest, env
 		Command:        m.Hooks.Run,
 		Tags:           tags,
 		Env:            sortedEnv,
+		Network:        dockerNetwork,
 	}
 	var out bytes.Buffer
 	if err := nomadJobTemplate.Execute(&out, in); err != nil {
@@ -165,4 +173,3 @@ func RenderNomadJob(jobName, datacenter, image string, m *manifest.Manifest, env
 	}
 	return out.String(), nil
 }
-
