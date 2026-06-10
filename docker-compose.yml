@@ -47,14 +47,18 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8000:8000"
+      # Debug entrypoint — bound to loopback only. SSH-tunnel from your
+      # workstation to reach it: `ssh -L 8000:127.0.0.1:8000 your-server`,
+      # then visit http://localhost:8000.
+      - "127.0.0.1:8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/traefik:/data
     networks:
       - darkside
     depends_on:
-      - nomad
+      nomad:
+        condition: service_healthy
 
   nomad:
     image: hashicorp/nomad:2.0
@@ -84,6 +88,14 @@ services:
     command:
       - agent
       - -config=/etc/nomad.d/nomad.hcl
+    healthcheck:
+      # `nomad agent-info` only succeeds once the HTTP API is up and the
+      # node has elected itself leader — exactly the state traefik needs.
+      test: ["CMD-SHELL", "nomad agent-info > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 5s
 
   darkside:
     build:
@@ -92,7 +104,8 @@ services:
     container_name: darkside
     restart: unless-stopped
     depends_on:
-      - nomad
+      nomad:
+        condition: service_healthy
     environment:
       DARKSIDE_CONFIG: /etc/darkside/config.toml
     volumes:

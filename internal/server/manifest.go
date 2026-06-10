@@ -49,7 +49,9 @@ func (s *manifestStates) consume(t string) bool {
 }
 
 // manifest returns the JSON manifest GitHub uses to provision the App.
-func (s *Server) manifest(state string) map[string]any {
+// `state` is NOT included here — it's a permitted form field on the parent
+// POST, but the manifest object itself rejects unknown keys.
+func (s *Server) manifest() map[string]any {
 	external := strings.TrimRight(s.opts.Config.ExternalURL, "/")
 	return map[string]any{
 		"name":         fmt.Sprintf("darkside-%s", s.opts.Config.Host()),
@@ -66,7 +68,6 @@ func (s *Server) manifest(state string) map[string]any {
 			"pull_requests": "read",
 		},
 		"public": false,
-		"state":  state,
 	}
 }
 
@@ -76,6 +77,7 @@ var manifestStartTmpl = template.Must(template.New("manifest-start").Parse(`<!do
 <p>Redirecting to GitHub to create the darkside GitHub App…</p>
 <form id="f" action="{{.PostURL}}" method="post">
   <input type="hidden" name="manifest" value="{{.ManifestJSON}}">
+  <input type="hidden" name="state" value="{{.State}}">
 </form>
 <script>document.getElementById('f').submit();</script>
 <noscript><button form="f" type="submit">Continue</button></noscript>
@@ -88,8 +90,7 @@ var manifestStartTmpl = template.Must(template.New("manifest-start").Parse(`<!do
 // Query: ?org=<github-org>   (optional — install for an org instead of user)
 func (s *Server) handleManifestStart(w http.ResponseWriter, r *http.Request) {
 	state := s.manifestStates.issue()
-	manifest := s.manifest(state)
-	manifestJSON, _ := json.Marshal(manifest)
+	manifestJSON, _ := json.Marshal(s.manifest())
 
 	postURL := "https://github.com/settings/apps/new"
 	if org := r.URL.Query().Get("org"); org != "" {
@@ -103,6 +104,7 @@ func (s *Server) handleManifestStart(w http.ResponseWriter, r *http.Request) {
 	_ = manifestStartTmpl.Execute(w, map[string]string{
 		"PostURL":      postURL,
 		"ManifestJSON": string(manifestJSON),
+		"State":        state,
 	})
 }
 
