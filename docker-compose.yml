@@ -60,10 +60,19 @@ services:
     image: hashicorp/nomad:2.0
     container_name: darkside-nomad
     restart: unless-stopped
-    # Privileged + cap_add for nomad's cgroup management and docker driver use.
+    # Privileged + host cgroup namespace are required for nomad's client to
+    # manage cgroups (cgroup v2 hosts otherwise hit EBUSY on
+    # /sys/fs/cgroup/cgroup.subtree_control). The docker driver still spawns
+    # sibling containers via the mounted host socket — not nested in nomad —
+    # so the "nomad clients in docker" warning is suppressed.
     privileged: true
+    cgroup: host
+    pid: host
+    environment:
+      NOMAD_SKIP_DOCKER_IMAGE_WARN: "1"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - ./configs/nomad.hcl:/etc/nomad.d/nomad.hcl:ro
       - ./data/nomad:/opt/nomad/data
       - /tmp:/tmp
