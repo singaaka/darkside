@@ -1,0 +1,24 @@
+# darkside operator config. Copy to darkside.toml and edit.
+# This is the config for the *platform*, not for individual apps.
+# Apps configure themselves via a darkside.toml in their own repo.
+
+# Root domain the stack runs on. darkside itself is served at
+# darkside.<domain>. Deployed apps get their own subdomains under <domain>.
+domain = "example.com"
+
+# Where sqlite, cloned repos, and other runtime state live inside the
+# container. The docker-compose volume mounts ./data/darkside here.
+data_dir = "/data"
+
+# Address the darkside binary binds to inside its container. Traefik fronts
+# this; you rarely need to change it.
+listen = ":8080"
+
+# How darkside talks to nomad. With `network_mode: host` on the nomad
+# container, the host's gateway IP works from inside the darkside container.
+# Use 172.17.0.1 on linux default bridge, or host.docker.internal on Docker Desktop.
+nomad_addr = "http://host.docker.internal:4646"
+
+# Docker daemon endpoint. The default unix socket works when mounted into the
+# container.
+docker_host = "unix:///var/run/docker.sock"

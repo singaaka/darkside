@@ -1,0 +1,98 @@
+# darkside: nomad + traefik + darkside, one command.
+#
+# Setup:
+#   1. cp darkside.example.toml darkside.toml  (and edit `domain`)
+#   2. cp .env.example .env                    (and edit DOMAIN / DARKSIDE_BASIC_AUTH)
+#   3. docker compose up -d --build
+#
+# DOMAIN env var must match the `domain` field in darkside.toml. We could
+# read one from the other, but keeping both explicit makes the compose file
+# self-contained.
+
+services:
+  traefik:
+    image: traefik:v3.2
+    container_name: darkside-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --entryPoints.web.address=:80
+      - --entryPoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --providers.nomad=true
+      - --providers.nomad.endpoint.address=http://nomad:4646
+      - --providers.nomad.exposedByDefault=false
+      - --log.level=INFO
+      - --accessLog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/traefik:/data
+    networks:
+      - darkside
+    depends_on:
+      - nomad
+
+  nomad:
+    image: hashicorp/nomad:1.9
+    container_name: darkside-nomad
+    restart: unless-stopped
+    privileged: true
+    # Nomad needs the docker socket to drive the docker driver, and host
+    # network so allocated ports are reachable from traefik on the same host.
+    network_mode: host
+    pid: host
+    ipc: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./configs/nomad.hcl:/etc/nomad.d/nomad.hcl:ro
+      - ./data/nomad:/opt/nomad/data
+      - /tmp:/tmp
+    command:
+      - agent
+      - -config=/etc/nomad.d/nomad.hcl
+
+  darkside:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: darkside
+    restart: unless-stopped
+    depends_on:
+      - nomad
+    environment:
+      DARKSIDE_CONFIG: /etc/darkside/config.toml
+    volumes:
+      - ./darkside.toml:/etc/darkside/config.toml:ro
+      - ./data/darkside:/data
+      # darkside drives docker directly for build + pre/post hooks (nomad runs
+      # the long-lived workloads itself). Same socket the nomad container uses.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - darkside
+    labels:
+      - traefik.enable=true
+      # Main router: dashboard + ConnectRPC, behind basic-auth.
+      - traefik.http.routers.darkside.rule=Host(`darkside.${DOMAIN}`)
+      - traefik.http.routers.darkside.entrypoints=web
+      - traefik.http.routers.darkside.middlewares=darkside-auth@docker
+      - traefik.http.routers.darkside.service=darkside
+      - traefik.http.services.darkside.loadbalancer.server.port=8080
+      # Webhook router: same Host, /webhooks/* path, NO auth, higher priority so
+      # it wins over the main router. GitHub posts events here.
+      - traefik.http.routers.darkside-webhook.rule=Host(`darkside.${DOMAIN}`) && PathPrefix(`/webhooks/`)
+      - traefik.http.routers.darkside-webhook.entrypoints=web
+      - traefik.http.routers.darkside-webhook.priority=200
+      - traefik.http.routers.darkside-webhook.service=darkside
+      # Basic-auth middleware. ${DARKSIDE_BASIC_AUTH} is htpasswd-encoded; see
+      # .env.example for how to generate it.
+      - traefik.http.middlewares.darkside-auth.basicauth.users=${DARKSIDE_BASIC_AUTH}
+
+networks:
+  darkside:
+    name: darkside
+    driver: bridge

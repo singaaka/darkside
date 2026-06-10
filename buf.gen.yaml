@@ -1,0 +1,16 @@
+version: v2
+clean: true
+plugins:
+  # Go: protoc-gen-go + protoc-gen-connect-go (still separate plugins on Go side).
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen/go
+    opt: paths=source_relative
+  # TS: protobuf-es v2 emits messages AND service descriptors in one file.
+  # connect-es v2 runtime consumes those descriptors directly — no separate TS
+  # codegen plugin needed.
+  - remote: buf.build/bufbuild/es:v2.2.3
+    out: frontend/src/gen
+    opt: target=ts

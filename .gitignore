@@ -1,0 +1,28 @@
+# Go
+/darkside
+/bin/
+*.test
+*.out
+
+# Generated proto
+/gen/
+
+# Embedded frontend (built into binary)
+/internal/frontend/dist/
+
+# Frontend build
+/frontend/dist/
+/frontend/node_modules/
+
+# Runtime data
+/data/
+/darkside.toml
+/darkside.yaml
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

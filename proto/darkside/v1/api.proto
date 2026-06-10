@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package darkside.v1;
+
+option go_package = "github.com/singaaka/darkside/gen/go/darkside/v1;darksidev1";
+
+// ---------------------------------------------------------------------------
+// HealthService — sanity ping the front-end uses to confirm the back-end is up.
+// ---------------------------------------------------------------------------
+service HealthService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
+
+message PingRequest {}
+message PingResponse {
+  string message = 1;
+  int64 timestamp_unix = 2;
+}
+message InfoRequest {}
+message InfoResponse {
+  string version = 1;
+  string domain = 2;
+}
+
+// ---------------------------------------------------------------------------
+// GitHubService — installation status + repo discovery.
+//
+// The manifest CREATION flow (POST a form to github.com/settings/apps/new) is
+// served as HTML at /github/manifest/start; GitHub redirects back to
+// /github/manifest/callback. Those are vanilla HTTP routes, not ConnectRPC.
+// Everything else is here.
+// ---------------------------------------------------------------------------
+service GitHubService {
+  rpc GetStatus(GetGitHubStatusRequest) returns (GetGitHubStatusResponse);
+  rpc ListInstallations(ListInstallationsRequest) returns (ListInstallationsResponse);
+  rpc ListInstallationRepos(ListInstallationReposRequest) returns (ListInstallationReposResponse);
+}
+
+message GetGitHubStatusRequest {}
+message GetGitHubStatusResponse {
+  bool connected = 1;
+  int64 app_id = 2;
+  string app_slug = 3;
+  string app_name = 4;
+  string html_url = 5;
+  string install_url = 6;
+}
+
+message Installation {
+  int64 id = 1;
+  string account_login = 2;
+  string account_type = 3;
+}
+
+message ListInstallationsRequest {}
+message ListInstallationsResponse {
+  repeated Installation installations = 1;
+}
+
+message Repo {
+  int64 id = 1;
+  string full_name = 2;
+  string default_branch = 3;
+  bool private = 4;
+  string description = 5;
+}
+
+message ListInstallationReposRequest {
+  int64 installation_id = 1;
+}
+message ListInstallationReposResponse {
+  repeated Repo repos = 1;
+}
+
+// ---------------------------------------------------------------------------
+// AppService — app records (the units darkside builds and deploys).
+// ---------------------------------------------------------------------------
+service AppService {
+  rpc List(ListAppsRequest) returns (ListAppsResponse);
+  rpc Get(GetAppRequest) returns (App);
+  rpc Create(CreateAppRequest) returns (App);
+  // GetManifestSample returns a copy-pasteable darkside.toml pre-filled with
+  // the app name + a Host rule for {app}.{domain}.
+  rpc GetManifestSample(GetManifestSampleRequest) returns (GetManifestSampleResponse);
+}
+
+message App {
+  string id = 1;
+  string name = 2;
+  string repo_full_name = 3;
+  int64 installation_id = 4;
+  int64 created_at_unix = 5;
+}
+
+message ListAppsRequest {}
+message ListAppsResponse {
+  repeated App apps = 1;
+}
+message GetAppRequest { string id = 1; }
+message CreateAppRequest {
+  string name = 1;
+  string repo_full_name = 2;
+  int64 installation_id = 3;
+}
+message GetManifestSampleRequest { string app_id = 1; }
+message GetManifestSampleResponse { string toml = 1; }
+
+// ---------------------------------------------------------------------------
+// EnvironmentService — per-app environments with age-encrypted env files.
+//
+// Creating an environment generates an age keypair. The PRIVATE key is shown
+// to the user (and stored in our DB for later phases) so they can copy it to
+// their local machine. The PUBLIC key (recipient) is committed to the repo so
+// anyone with repo access can encrypt new env files.
+// ---------------------------------------------------------------------------
+service EnvironmentService {
+  rpc List(ListEnvironmentsRequest) returns (ListEnvironmentsResponse);
+  rpc Get(GetEnvironmentRequest) returns (GetEnvironmentResponse);
+  rpc Create(CreateEnvironmentRequest) returns (GetEnvironmentResponse);
+}
+
+message Environment {
+  string id = 1;
+  string app_id = 2;
+  string name = 3;
+  string public_key = 4;
+  // Unredacted on purpose — operators want full visibility for now.
+  string private_key = 5;
+  int64 created_at_unix = 6;
+}
+
+// EnvironmentSetup is the per-env onboarding payload the UI displays: bash
+// commands to run locally, repo paths to add, and the manifest [[environments]]
+// snippet.
+message EnvironmentSetup {
+  string bash_commands = 1;
+  string recipient_path = 2;
+  string env_file_path = 3;
+  string manifest_snippet = 4;
+}
+
+message ListEnvironmentsRequest { string app_id = 1; }
+message ListEnvironmentsResponse { repeated Environment environments = 1; }
+message CreateEnvironmentRequest {
+  string app_id = 1;
+  string name = 2;
+}
+message GetEnvironmentRequest {
+  string app_id = 1;
+  string name = 2;
+}
+message GetEnvironmentResponse {
+  Environment environment = 1;
+  EnvironmentSetup setup = 2;
+}
+
+// ---------------------------------------------------------------------------
+// DeploymentService — list deployments and stream their live logs.
+// ---------------------------------------------------------------------------
+service DeploymentService {
+  rpc List(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  rpc Get(GetDeploymentRequest) returns (Deployment);
+  // StreamLogs server-streams live log lines for a given (deployment, phase).
+  // When the phase is already finished, the persisted log is sent in one chunk
+  // and the stream closes.
+  rpc StreamLogs(StreamLogsRequest) returns (stream StreamLogsResponse);
+  // Redeploy creates a NEW deployment row from an existing one's commit SHA,
+  // pinned to the same environment. Docker layer caching makes this fast;
+  // the rolling deploy still happens for real.
+  rpc Redeploy(RedeployRequest) returns (Deployment);
+}
+
+message Deployment {
+  string id = 1;
+  string app_id = 2;
+  string environment_id = 3;     // empty if no branch mapping or pre-resolve
+  string environment_name = 4;   // populated by server for UI convenience
+  string commit_sha = 5;
+  string commit_message = 6;
+  string image_tag = 7;
+  string status = 8;             // pending|cloning|building|built|pre|deploying|post|succeeded|failed
+  string nomad_job_hcl = 9;
+  string env_snapshot = 10;      // json blob of resolved env vars (unredacted)
+  string error = 11;
+  int64 started_at_unix = 12;
+  int64 finished_at_unix = 13;
+}
+
+message ListDeploymentsRequest {
+  string app_id = 1;
+  int32 limit = 2;
+}
+message ListDeploymentsResponse {
+  repeated Deployment deployments = 1;
+}
+
+message GetDeploymentRequest { string id = 1; }
+
+message StreamLogsRequest {
+  string deployment_id = 1;
+  string phase = 2;  // build|pre|deploy|post
+}
+message StreamLogsResponse {
+  string chunk = 1;
+}
+
+message RedeployRequest { string deployment_id = 1; }
