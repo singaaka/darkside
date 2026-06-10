@@ -81,7 +81,7 @@ func (h *appsHandler) GetManifestSample(ctx context.Context, req *connect.Reques
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&darksidev1.GetManifestSampleResponse{
-		Toml: manifest.Sample(a.Name, h.cfg.Domain),
+		Toml: manifest.Sample(a.Name),
 	}), nil
 }
 

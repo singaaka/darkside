@@ -1,13 +1,15 @@
 # darkside: nomad + traefik + darkside, one command.
 #
 # Setup:
-#   1. cp darkside.example.toml darkside.toml  (and edit `domain`)
-#   2. cp .env.example .env                    (and edit DOMAIN / DARKSIDE_BASIC_AUTH)
+#   1. cp darkside.example.toml darkside.toml   (edit `external_url` to the
+#                                                HTTPS URL where darkside lives)
+#   2. cp .env.example .env                     (edit DARKSIDE_HOST,
+#                                                DARKSIDE_BASIC_AUTH, ACME_EMAIL)
 #   3. docker compose up -d --build
 #
-# DOMAIN env var must match the `domain` field in darkside.toml. We could
-# read one from the other, but keeping both explicit makes the compose file
-# self-contained.
+# DARKSIDE_HOST is just the hostname part (e.g. darkside.hotelstack.co).
+# external_url in darkside.toml is the full URL with scheme — darkside emits
+# it as the GitHub webhook/manifest callback target.
 
 services:
   traefik:
@@ -17,33 +19,41 @@ services:
     command:
       - --api.dashboard=true
       - --api.insecure=false
+      # Entrypoints:
+      #   - web      :80  used for the ACME http-01 challenge + redirect to https
+      #   - websecure:443 production traffic (HTTPS)
+      #   - debug    :8000 catch-all that always hits darkside, no Host check.
+      #                    Open this from inside your network to debug routing
+      #                    without DNS / TLS in the picture.
       - --entryPoints.web.address=:80
+      - --entryPoints.web.http.redirections.entryPoint.to=websecure
+      - --entryPoints.web.http.redirections.entryPoint.scheme=https
       - --entryPoints.websecure.address=:443
+      - --entryPoints.debug.address=:8000
+      # Let's Encrypt cert resolver. HTTP-01 challenge uses the `web` entrypoint
+      # so port 80 must be reachable from the public internet.
+      - --certificatesResolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesResolvers.letsencrypt.acme.storage=/data/acme.json
+      - --certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web
       - --providers.docker=true
       - --providers.docker.exposedByDefault=false
-      # Nomad runs with network_mode: host, so its container name isn't on the
-      # docker DNS. We reach it via the host-gateway alias added below — the
-      # same address darkside.toml uses for darkside's own nomad client.
       - --providers.nomad=true
       - --providers.nomad.endpoint.address=http://host.docker.internal:4646
       - --providers.nomad.exposedByDefault=false
       - --log.level=INFO
       - --accessLog=true
     environment:
-      # Pin the docker client API version. Older traefik images negotiate
-      # poorly with current dockerd which rejects API < 1.40.
       DOCKER_API_VERSION: "1.43"
     ports:
       - "80:80"
       - "443:443"
+      - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/traefik:/data
     networks:
       - darkside
     extra_hosts:
-      # Linux dockerd doesn't ship host.docker.internal — this adds it. On
-      # Docker Desktop it's a no-op (the alias exists already).
       - "host.docker.internal:host-gateway"
     depends_on:
       - nomad
@@ -53,8 +63,6 @@ services:
     container_name: darkside-nomad
     restart: unless-stopped
     privileged: true
-    # Nomad needs the docker socket to drive the docker driver, and host
-    # network so allocated ports are reachable from traefik on the same host.
     network_mode: host
     pid: host
     ipc: host
@@ -80,8 +88,6 @@ services:
     volumes:
       - ./darkside.toml:/etc/darkside/config.toml:ro
       - ./data/darkside:/data
-      # darkside drives docker directly for build + pre/post hooks (nomad runs
-      # the long-lived workloads itself). Same socket the nomad container uses.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - darkside
@@ -89,20 +95,28 @@ services:
       - "host.docker.internal:host-gateway"
     labels:
       - traefik.enable=true
-      # Main router: dashboard + ConnectRPC, behind basic-auth.
-      - traefik.http.routers.darkside.rule=Host(`darkside.${DOMAIN}`)
-      - traefik.http.routers.darkside.entrypoints=web
-      - traefik.http.routers.darkside.middlewares=darkside-auth@docker
-      - traefik.http.routers.darkside.service=darkside
-      - traefik.http.services.darkside.loadbalancer.server.port=8080
-      # Webhook router: same Host, /webhooks/* path, NO auth, higher priority so
-      # it wins over the main router. GitHub posts events here.
-      - traefik.http.routers.darkside-webhook.rule=Host(`darkside.${DOMAIN}`) && PathPrefix(`/webhooks/`)
-      - traefik.http.routers.darkside-webhook.entrypoints=web
+      # ── Debug catch-all on :8000 ─────────────────────────────────────────
+      # Any request to :8000 hits darkside, regardless of Host. No basic
+      # auth, no TLS. Bind this to localhost / a vpn / a private interface
+      # — don't expose to the public internet.
+      - traefik.http.routers.darkside-debug.rule=PathPrefix(`/`)
+      - traefik.http.routers.darkside-debug.entrypoints=debug
+      - traefik.http.routers.darkside-debug.service=darkside
+      # ── Production HTTPS ─────────────────────────────────────────────────
+      - traefik.http.routers.darkside-tls.rule=Host(`${DARKSIDE_HOST}`)
+      - traefik.http.routers.darkside-tls.entrypoints=websecure
+      - traefik.http.routers.darkside-tls.tls.certresolver=letsencrypt
+      - traefik.http.routers.darkside-tls.middlewares=darkside-auth@docker
+      - traefik.http.routers.darkside-tls.service=darkside
+      # ── Webhook bypass (HTTPS, no auth, higher priority) ─────────────────
+      # GitHub posts here; signature verify gates the handler.
+      - traefik.http.routers.darkside-webhook.rule=Host(`${DARKSIDE_HOST}`) && PathPrefix(`/webhooks/`)
+      - traefik.http.routers.darkside-webhook.entrypoints=websecure
+      - traefik.http.routers.darkside-webhook.tls.certresolver=letsencrypt
       - traefik.http.routers.darkside-webhook.priority=200
       - traefik.http.routers.darkside-webhook.service=darkside
-      # Basic-auth middleware. ${DARKSIDE_BASIC_AUTH} is htpasswd-encoded; see
-      # .env.example for how to generate it.
+      # ── Service + middleware ─────────────────────────────────────────────
+      - traefik.http.services.darkside.loadbalancer.server.port=8080
       - traefik.http.middlewares.darkside-auth.basicauth.users=${DARKSIDE_BASIC_AUTH}
 
 networks:

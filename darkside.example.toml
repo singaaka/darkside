@@ -1,24 +1,20 @@
 # darkside operator config. Copy to darkside.toml and edit.
-# This is the config for the *platform*, not for individual apps.
-# Apps configure themselves via a darkside.toml in their own repo.
+# Per-app config lives in each app's repo as darkside.toml.
 
-# Root domain the stack runs on. darkside itself is served at
-# darkside.<domain>. Deployed apps get their own subdomains under <domain>.
-domain = "example.com"
+# Full HTTPS URL where darkside is reachable. This goes into GitHub webhook +
+# manifest callback URLs, so it must match DNS + match DARKSIDE_HOST in .env.
+external_url = "https://darkside.example.com"
 
-# Where sqlite, cloned repos, and other runtime state live inside the
-# container. The docker-compose volume mounts ./data/darkside here.
+# Runtime state lives here inside the container (sqlite, cloned repos).
 data_dir = "/data"
 
-# Address the darkside binary binds to inside its container. Traefik fronts
-# this; you rarely need to change it.
+# What darkside binds to inside its container. Traefik fronts this.
 listen = ":8080"
 
-# How darkside talks to nomad. With `network_mode: host` on the nomad
-# container, the host's gateway IP works from inside the darkside container.
-# Use 172.17.0.1 on linux default bridge, or host.docker.internal on Docker Desktop.
+# Nomad HTTP API. Nomad runs with network_mode: host, so we reach it via the
+# host-gateway alias. On Docker Desktop host.docker.internal exists natively;
+# on Linux the compose file adds it via extra_hosts.
 nomad_addr = "http://host.docker.internal:4646"
 
-# Docker daemon endpoint. The default unix socket works when mounted into the
-# container.
+# Docker daemon endpoint. The mounted unix socket is the default.
 docker_host = "unix:///var/run/docker.sock"

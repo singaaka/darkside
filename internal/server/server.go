@@ -49,7 +49,7 @@ func (s *Server) Handler() http.Handler {
 
 	healthPath, healthH := darksidev1connect.NewHealthServiceHandler(&healthHandler{
 		version: s.opts.Version,
-		domain:  s.opts.Config.Domain,
+		domain:  s.opts.Config.Host(),
 	})
 	mux.Handle(healthPath, healthH)
 
@@ -75,7 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true,"version":"` + s.opts.Version + `","domain":"` + s.opts.Config.Domain + `"}`))
+		_, _ = w.Write([]byte(`{"ok":true,"version":"` + s.opts.Version + `","host":"` + s.opts.Config.Host() + `"}`))
 	})
 
 	mux.HandleFunc("/github/manifest/start", s.handleManifestStart)

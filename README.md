@@ -11,21 +11,40 @@ files; the public keys ship with your repo, the private keys live in darkside.
 ## Setup
 
 ```bash
-cp darkside.example.toml darkside.toml   # edit `domain` and `external_url`
-cp .env.example .env                     # edit DOMAIN + DARKSIDE_BASIC_AUTH
+cp darkside.example.toml darkside.toml   # edit `external_url`
+cp .env.example .env                     # edit DARKSIDE_HOST, ACME_EMAIL, DARKSIDE_BASIC_AUTH
 docker compose up -d --build
 ```
 
-Then point `darkside.<DOMAIN>` and `*.<DOMAIN>` DNS at the host. For local dev,
-add `darkside.example.com` and your app subdomains to `/etc/hosts`.
+Point `DARKSIDE_HOST` DNS at the host running compose. Traefik provisions a
+Let's Encrypt cert automatically on first request (HTTP-01 challenge — port 80
+must be reachable from the internet).
 
-The dashboard sits at `https://darkside.<DOMAIN>/` behind HTTP basic auth.
+The dashboard sits at `https://<DARKSIDE_HOST>/` behind HTTP basic auth.
 Generate the credentials with:
 
 ```bash
 htpasswd -nbB admin yourpassword
 # In .env, escape every $ as $$ — docker-compose expands single $.
 ```
+
+darkside does **not** assume a subdomain convention for the apps you deploy.
+Each app's `darkside.toml` provides its own traefik labels — host-based,
+path-based, multiple hosts, whatever. The Manifest tab on the dashboard shows
+a starter template with placeholders.
+
+## Debug entrypoint on :8000
+
+Traefik also binds `:8000` as a catch-all that routes any request directly to
+darkside, no Host check, no TLS, no auth. Useful when DNS / certs aren't ready
+or you want to inspect routing from inside your network:
+
+```bash
+curl http://<host>:8000/healthz
+```
+
+Do not expose `:8000` to the public internet — bind it to localhost or a
+private interface only.
 
 ## Day-one flow
 
@@ -47,24 +66,24 @@ htpasswd -nbB admin yourpassword
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                       docker compose                          │
-│                                                               │
-│  ┌─────────┐    ┌──────────────────────┐    ┌──────────────┐  │
-│  │ traefik │───▶│   darkside (Go +     │───▶│    nomad     │  │
-│  │  :80    │    │   embedded React)    │    │    :4646     │  │
-│  │  :443   │    │   :8080              │    │ (host net)   │  │
-│  └─────────┘    └──────────────────────┘    └──────────────┘  │
-│       │                   │                       │           │
-│       │                   ▼                       ▼           │
-│       │             ┌─────────────┐         /var/run/         │
-│       │             │ sqlite      │         docker.sock       │
-│       │             │ (in volume) │            │              │
-│       │             └─────────────┘            ▼              │
-│       │                                  ┌──────────┐         │
-│       └─────────────────────────────────▶│  apps    │         │
-│         (routes via nomad service tags)  └──────────┘         │
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                          docker compose                            │
+│                                                                    │
+│  ┌─────────────┐    ┌──────────────────────┐    ┌──────────────┐   │
+│  │  traefik    │───▶│   darkside (Go +     │───▶│    nomad     │   │
+│  │  :80  ACME  │    │   embedded React)    │    │    :4646     │   │
+│  │  :443 TLS   │    │   :8080              │    │ (host net)   │   │
+│  │  :8000 debug│    └──────────────────────┘    └──────────────┘   │
+│  └─────────────┘             │                       │             │
+│       │                      ▼                       ▼             │
+│       │                ┌─────────────┐         /var/run/           │
+│       │                │ sqlite      │         docker.sock         │
+│       │                │ (in volume) │            │                │
+│       │                └─────────────┘            ▼                │
+│       │                                     ┌──────────┐           │
+│       └────────────────────────────────────▶│  apps    │           │
+│         (routes via nomad service tags)     └──────────┘           │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 - Traefik reads service tags from nomad (`provider = "nomad"` in each service

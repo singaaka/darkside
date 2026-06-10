@@ -52,7 +52,7 @@ func (s *manifestStates) consume(t string) bool {
 func (s *Server) manifest(state string) map[string]any {
 	external := strings.TrimRight(s.opts.Config.ExternalURL, "/")
 	return map[string]any{
-		"name":         fmt.Sprintf("darkside-%s", s.opts.Config.Domain),
+		"name":         fmt.Sprintf("darkside-%s", s.opts.Config.Host()),
 		"url":          external,
 		"redirect_url": external + "/github/manifest/callback",
 		"hook_attributes": map[string]any{

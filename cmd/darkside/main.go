@@ -40,8 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("loaded config",
-		"domain", cfg.Domain,
 		"external_url", cfg.ExternalURL,
+		"host", cfg.Host(),
 		"data_dir", cfg.DataDir,
 		"listen", cfg.Listen,
 	)
