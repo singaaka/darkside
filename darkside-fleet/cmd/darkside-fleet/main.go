@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/singaaka/darkside-fleet/internal/queue"
 	"github.com/singaaka/darkside-fleet/internal/server"
 	"github.com/singaaka/darkside-fleet/internal/store"
+	"github.com/singaaka/darkside-fleet/playbooks"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -32,7 +32,8 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	// Verify ansible is installed.
+	// Verify ansible is installed on the host running darkside-fleet (we only
+	// embed playbooks; the ansible binary itself is a runtime dep).
 	if ver, err := ansible.Check(); err != nil {
 		slog.Error("ansible-playbook not found",
 			"error", err,
@@ -66,24 +67,15 @@ func main() {
 
 	st := store.New(sqlDB)
 
-	// Find playbooks directory: next to binary, or embedded.
-	execDir := filepath.Dir(execPath)
-	playbookDir := filepath.Join(execDir, "playbooks")
-	if _, err := os.Stat(playbookDir); os.IsNotExist(err) {
-		// Fall back to project source when running with `go run`.
-		_, callerFile, _, _ := runtime.Caller(0)
-		playbookDir = filepath.Join(filepath.Dir(callerFile), "..", "..", "playbooks")
-	}
-
-	runner := &ansible.Runner{PlaybookDir: playbookDir}
+	runner := &ansible.Runner{Playbooks: playbooks.FS}
 	q := queue.New(st)
 
 	srv := server.New(server.Options{
-		Store:       st,
-		Queue:       q,
-		Runner:      runner,
-		PlaybookDir: playbookDir,
-		Frontend:    frontend.Handler(),
+		Store:     st,
+		Queue:     q,
+		Runner:    runner,
+		Playbooks: playbooks.FS,
+		Frontend:  frontend.Handler(),
 	})
 	server.RegisterJobHandlers(srv)
 

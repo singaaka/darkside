@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -172,20 +171,13 @@ func handleAddNode(ctx context.Context, s *Server, job dbgen.Job, logf func(stri
 		return err
 	}
 
-	// Get cluster settings for registry address.
-	regPort, _ := s.opts.Store.GetSetting(ctx, "registry_port")
-	if regPort == "" {
-		regPort = "5000"
-	}
-	rPort, _ := strconv.Atoi(regPort)
-
 	// Update status.
 	_ = s.opts.Store.UpdateNodeStatus(ctx, dbgen.UpdateNodeStatusParams{ID: node.ID, Status: "provisioning"})
 
 	// Get all nodes for config generation.
 	allNodes, _ := s.opts.Store.ListNodes(ctx)
 	domain, _ := s.opts.Store.GetSetting(ctx, "domain")
-	settings := config.ClusterSettings{Domain: domain, RegistryPort: rPort}
+	settings := config.ClusterSettings{Domain: domain}
 
 	// 1. Setup node (install Docker, Nomad, Consul, CNI).
 	inventory := ansible.BuildSingleHostInventory(node)
@@ -195,7 +187,7 @@ func handleAddNode(ctx context.Context, s *Server, job dbgen.Job, logf func(stri
 		Inventory:  "-",
 		PrivateKey: node.SshKeyPath,
 		RemoteUser: node.SshUser,
-		ExtraVars:  map[string]string{"registry_addr": fmt.Sprintf("darkside-registry.service.consul:%d", rPort)},
+		ExtraVars:  map[string]string{"registry_addr": fmt.Sprintf("darkside-registry.service.consul:%d", config.RegistryPort)},
 		LogF:       logf,
 	}); err != nil {
 		// Write inventory to a temp file since ansible doesn't support inline "-" easily.
@@ -279,10 +271,8 @@ func handleDeleteNode(ctx context.Context, s *Server, job dbgen.Job, logf func(s
 	_ = s.opts.Store.DeleteNode(ctx, p.NodeID)
 
 	// Update remaining nodes.
-	regPort, _ := s.opts.Store.GetSetting(ctx, "registry_port")
-	rPort, _ := strconv.Atoi(regPort)
 	domain, _ := s.opts.Store.GetSetting(ctx, "domain")
-	settings := config.ClusterSettings{Domain: domain, RegistryPort: rPort}
+	settings := config.ClusterSettings{Domain: domain}
 	_ = updateAllNodeConfigs(ctx, s, logf, runner, settings)
 	return nil
 }
@@ -327,18 +317,14 @@ func handleMigratePaas(ctx context.Context, s *Server, job dbgen.Job, logf func(
 	}
 
 	// Update configs.
-	regPort, _ := s.opts.Store.GetSetting(ctx, "registry_port")
-	rPort, _ := strconv.Atoi(regPort)
 	domain, _ := s.opts.Store.GetSetting(ctx, "domain")
-	settings := config.ClusterSettings{Domain: domain, RegistryPort: rPort}
+	settings := config.ClusterSettings{Domain: domain}
 	return updateAllNodeConfigs(ctx, s, logf, runner, settings)
 }
 
 func handleUpdateCluster(ctx context.Context, s *Server, job dbgen.Job, logf func(string), runner *ansible.Runner) error {
-	regPort, _ := s.opts.Store.GetSetting(ctx, "registry_port")
-	rPort, _ := strconv.Atoi(regPort)
 	domain, _ := s.opts.Store.GetSetting(ctx, "domain")
-	settings := config.ClusterSettings{Domain: domain, RegistryPort: rPort}
+	settings := config.ClusterSettings{Domain: domain}
 	return updateAllNodeConfigs(ctx, s, logf, runner, settings)
 }
 

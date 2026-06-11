@@ -1016,7 +1016,6 @@ func (x *GetPlaybookRequest) GetName() string {
 type Settings struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Domain             string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
-	RegistryPort       int32                  `protobuf:"varint,2,opt,name=registry_port,json=registryPort,proto3" json:"registry_port,omitempty"`
 	DarksidePaasNodeId string                 `protobuf:"bytes,3,opt,name=darkside_paas_node_id,json=darksidePaasNodeId,proto3" json:"darkside_paas_node_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -1057,13 +1056,6 @@ func (x *Settings) GetDomain() string {
 		return x.Domain
 	}
 	return ""
-}
-
-func (x *Settings) GetRegistryPort() int32 {
-	if x != nil {
-		return x.RegistryPort
-	}
-	return 0
 }
 
 func (x *Settings) GetDarksidePaasNodeId() string {
@@ -1112,7 +1104,6 @@ func (*GetSettingsRequest) Descriptor() ([]byte, []int) {
 type UpdateSettingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Domain        string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
-	RegistryPort  int32                  `protobuf:"varint,2,opt,name=registry_port,json=registryPort,proto3" json:"registry_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1152,13 +1143,6 @@ func (x *UpdateSettingsRequest) GetDomain() string {
 		return x.Domain
 	}
 	return ""
-}
-
-func (x *UpdateSettingsRequest) GetRegistryPort() int32 {
-	if x != nil {
-		return x.RegistryPort
-	}
-	return 0
 }
 
 var File_fleet_v1_api_proto protoreflect.FileDescriptor
@@ -1233,15 +1217,13 @@ const file_fleet_v1_api_proto_rawDesc = "" +
 	"\x15ListPlaybooksResponse\x120\n" +
 	"\tplaybooks\x18\x01 \x03(\v2\x12.fleet.v1.PlaybookR\tplaybooks\"(\n" +
 	"\x12GetPlaybookRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"z\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"j\n" +
 	"\bSettings\x12\x16\n" +
-	"\x06domain\x18\x01 \x01(\tR\x06domain\x12#\n" +
-	"\rregistry_port\x18\x02 \x01(\x05R\fregistryPort\x121\n" +
-	"\x15darkside_paas_node_id\x18\x03 \x01(\tR\x12darksidePaasNodeId\"\x14\n" +
-	"\x12GetSettingsRequest\"T\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\x121\n" +
+	"\x15darkside_paas_node_id\x18\x03 \x01(\tR\x12darksidePaasNodeIdJ\x04\b\x02\x10\x03R\rregistry_port\"\x14\n" +
+	"\x12GetSettingsRequest\"D\n" +
 	"\x15UpdateSettingsRequest\x12\x16\n" +
-	"\x06domain\x18\x01 \x01(\tR\x06domain\x12#\n" +
-	"\rregistry_port\x18\x02 \x01(\x05R\fregistryPort2\xb2\x02\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domainJ\x04\b\x02\x10\x03R\rregistry_port2\xb2\x02\n" +
 	"\vNodeService\x12?\n" +
 	"\x04List\x12\x1a.fleet.v1.ListNodesRequest\x1a\x1b.fleet.v1.ListNodesResponse\x12/\n" +
 	"\x03Get\x12\x18.fleet.v1.GetNodeRequest\x1a\x0e.fleet.v1.Node\x12/\n" +

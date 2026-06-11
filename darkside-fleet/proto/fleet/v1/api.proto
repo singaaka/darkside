@@ -102,7 +102,10 @@ message ListPlaybooksResponse { repeated Playbook playbooks = 1; }
 message GetPlaybookRequest { string name = 1; }
 
 // ---------------------------------------------------------------------------
-// SettingsService — cluster-wide settings (domain, registry port, etc).
+// SettingsService — cluster-wide settings.
+//
+// The private registry port is intentionally NOT a setting — it's an internal
+// detail fixed by darkside-fleet (see internal/config/RegistryPort).
 // ---------------------------------------------------------------------------
 service SettingsService {
   rpc Get(GetSettingsRequest) returns (Settings);
@@ -111,11 +114,14 @@ service SettingsService {
 
 message Settings {
   string domain = 1;
-  int32 registry_port = 2;
+  // field 2 is reserved — was registry_port, now internal.
+  reserved 2;
+  reserved "registry_port";
   string darkside_paas_node_id = 3;
 }
 message GetSettingsRequest {}
 message UpdateSettingsRequest {
   string domain = 1;
-  int32 registry_port = 2;
+  reserved 2;
+  reserved "registry_port";
 }

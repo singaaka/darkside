@@ -3,11 +3,16 @@
 // application itself, and the Traefik reverse proxy.
 package nomad
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/singaaka/darkside-fleet/internal/config"
+)
 
 // DarksideRegistryJob returns the HCL2 job spec for the private Docker registry.
-// It is pinned to the darkside host node via a meta constraint.
-func DarksideRegistryJob(datacenter string, registryPort int) string {
+// It is pinned to the darkside host node via a meta constraint. The port is
+// the internal RegistryPort constant — operators never tune it.
+func DarksideRegistryJob(datacenter string) string {
 	return fmt.Sprintf(`job "darkside-registry" {
   datacenters = [%q]
   type        = "service"
@@ -55,11 +60,11 @@ func DarksideRegistryJob(datacenter string, registryPort int) string {
     }
   }
 }
-`, datacenter, registryPort)
+`, datacenter, config.RegistryPort)
 }
 
 // DarksideJob returns the HCL2 job spec for the darkside application.
-func DarksideJob(datacenter, domain, imageRef string, registryPort int) string {
+func DarksideJob(datacenter, domain, imageRef string) string {
 	return fmt.Sprintf(`job "darkside" {
   datacenters = [%q]
   type        = "service"

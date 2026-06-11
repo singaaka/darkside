@@ -9,11 +9,18 @@ import (
 	"github.com/singaaka/darkside-fleet/internal/db/dbgen"
 )
 
+// RegistryPort is the static port the private Docker registry listens on.
+// Hardcoded because it's an internal detail of how darkside-fleet wires the
+// cluster — there's no reason for an operator to ever change it, and treating
+// it as a setting was just clutter on the UI. If a port change is ever needed,
+// flip this constant and any node configs regenerate on the next add/migrate.
+const RegistryPort = 5000
+
 // ClusterSettings contains the cluster-wide settings needed for config generation.
+// (RegistryPort is fixed; see the constant above.)
 type ClusterSettings struct {
-	Domain       string
-	RegistryPort int
-	PaasNodeID   string
+	Domain     string
+	PaasNodeID string
 }
 
 // GenerateNomadHCL produces a nomad.hcl for the given node, aware of all peer IPs.
@@ -35,7 +42,7 @@ func GenerateNomadHCL(node dbgen.Node, allNodes []dbgen.Node, settings ClusterSe
 		nodeMeta += fmt.Sprintf("\n    \"node.tags\"   = %q", strings.Join(tags, ","))
 	}
 
-	registryAddr := fmt.Sprintf("darkside-registry.service.consul:%d", settings.RegistryPort)
+	registryAddr := fmt.Sprintf("darkside-registry.service.consul:%d", RegistryPort)
 
 	return fmt.Sprintf(`datacenter = "dc1"
 data_dir   = "/opt/nomad/data"

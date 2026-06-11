@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 
 	"connectrpc.com/connect"
 
@@ -26,11 +25,8 @@ func (h *settingsHandler) Update(ctx context.Context, req *connect.Request[v1.Up
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	if req.Msg.RegistryPort > 0 {
-		if err := h.s.opts.Store.SetSetting(ctx, dbgen.SetSettingParams{Key: "registry_port", Value: fmt.Sprintf("%d", req.Msg.RegistryPort)}); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-	}
+	// registry_port is intentionally NOT a setting — it's an internal detail
+	// fixed by darkside-fleet (see internal/config/RegistryPort).
 	s, err := h.loadSettings(ctx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -40,18 +36,9 @@ func (h *settingsHandler) Update(ctx context.Context, req *connect.Request[v1.Up
 
 func (h *settingsHandler) loadSettings(ctx context.Context) (*v1.Settings, error) {
 	domain, _ := h.s.opts.Store.GetSetting(ctx, "domain")
-	regPortStr, _ := h.s.opts.Store.GetSetting(ctx, "registry_port")
 	paasNodeID, _ := h.s.opts.Store.GetSetting(ctx, "darkside_paas_node_id")
-
-	regPort := int32(5000)
-	if regPortStr != "" {
-		var p int
-		fmt.Sscanf(regPortStr, "%d", &p)
-		regPort = int32(p)
-	}
 	return &v1.Settings{
 		Domain:             domain,
-		RegistryPort:       regPort,
 		DarksidePaasNodeId: paasNodeID,
 	}, nil
 }

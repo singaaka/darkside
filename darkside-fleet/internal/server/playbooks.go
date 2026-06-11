@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -13,16 +12,16 @@ import (
 	v1 "github.com/singaaka/darkside-fleet/gen/go/fleet/v1"
 )
 
-// playbookHandler serves the on-disk ansible playbooks that the runner
+// playbookHandler serves the embedded Ansible playbooks that the runner
 // invokes. The dashboard shows them under the Playbooks tab so operators can
 // audit exactly what's being applied to each node.
 type playbookHandler struct{ s *Server }
 
 func (h *playbookHandler) List(_ context.Context, _ *connect.Request[v1.ListPlaybooksRequest]) (*connect.Response[v1.ListPlaybooksResponse], error) {
-	entries, err := os.ReadDir(h.s.opts.PlaybookDir)
+	entries, err := fs.ReadDir(h.s.opts.Playbooks, ".")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal,
-			fmt.Errorf("read playbook dir %q: %w", h.s.opts.PlaybookDir, err))
+			fmt.Errorf("read embedded playbooks: %w", err))
 	}
 	var out []*v1.Playbook
 	for _, e := range entries {
@@ -53,7 +52,7 @@ func (h *playbookHandler) Get(_ context.Context, req *connect.Request[v1.GetPlay
 	}
 	pb, err := h.readPlaybook(req.Msg.Name)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("playbook not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -62,25 +61,21 @@ func (h *playbookHandler) Get(_ context.Context, req *connect.Request[v1.GetPlay
 }
 
 func (h *playbookHandler) readPlaybook(name string) (*v1.Playbook, error) {
-	path := filepath.Join(h.s.opts.PlaybookDir, name)
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	body, err := os.ReadFile(path)
+	body, err := fs.ReadFile(h.s.opts.Playbooks, name)
 	if err != nil {
 		return nil, err
 	}
 	return &v1.Playbook{
 		Name:        name,
 		Content:     string(body),
-		SizeBytes:   st.Size(),
+		SizeBytes:   int64(len(body)),
 		Description: firstYAMLComment(body),
 	}, nil
 }
 
 // isSafePlaybookName rejects names with path separators or `..` so we can't
-// be tricked into reading arbitrary files.
+// be tricked into reading arbitrary files. The FS is read-only embedded data,
+// but sticking to flat playbook names is what callers expect.
 func isSafePlaybookName(name string) bool {
 	if name == "" || strings.Contains(name, "/") || strings.Contains(name, `\`) || strings.Contains(name, "..") {
 		return false

@@ -42,10 +42,10 @@ CREATE TABLE settings (
     value TEXT NOT NULL
 );
 
--- Seed defaults.
+-- Seed defaults. registry_port is intentionally NOT a setting — it's an
+-- internal detail fixed by darkside-fleet (internal/config/RegistryPort).
 INSERT INTO settings (key, value) VALUES
     ('domain', ''),
-    ('registry_port', '5000'),
     ('darkside_paas_node_id', '');
 
 -- +goose Down

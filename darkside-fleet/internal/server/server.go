@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 
 	"github.com/singaaka/darkside-fleet/gen/go/fleet/v1/fleetv1connect"
@@ -12,11 +13,11 @@ import (
 
 // Options contains dependencies injected into the server.
 type Options struct {
-	Store       *store.Store
-	Queue       *queue.Queue
-	Runner      *ansible.Runner
-	PlaybookDir string
-	Frontend    http.Handler
+	Store     *store.Store
+	Queue     *queue.Queue
+	Runner    *ansible.Runner
+	Playbooks fs.FS // typically playbooks.FS — the embedded ansible YAML
+	Frontend  http.Handler
 }
 
 // Server holds all state for the HTTP server.
