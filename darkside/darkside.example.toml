@@ -1,0 +1,25 @@
+# darkside operator config. Copy to darkside.toml and edit.
+# Per-app config lives in each app's repo as its own darkside.toml.
+
+# Full HTTPS URL where darkside is reachable. Goes into GitHub webhook +
+# manifest callback URLs, so it must match DNS + DARKSIDE_HOST in .env.
+external_url = "https://darkside.example.com"
+
+# Runtime state lives here inside the container (sqlite, build workspaces).
+data_dir = "/data"
+
+# Where the binary binds inside its container. Traefik fronts this.
+listen = ":8080"
+
+# Nomad HTTP API — reached over the compose network by service name.
+nomad_addr = "http://nomad:4646"
+
+# Private Docker registry. The build job pushes here; nomad allocations pull
+# from here. In compose mode the registry container is host-exposed on
+# 127.0.0.1:5000 so the host daemon trusts it (localhost = insecure by default).
+# In production cluster mode set this to the consul service name, e.g.
+# "darkside-registry.service.consul:5000".
+registry_addr = "127.0.0.1:5000"
+
+# Docker daemon endpoint. The mounted unix socket is the default.
+docker_host = "unix:///var/run/docker.sock"

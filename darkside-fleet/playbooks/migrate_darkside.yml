@@ -1,0 +1,32 @@
+---
+# migrate_darkside.yml — move darkside SQLite data from old node to new node.
+# Variables:
+#   old_node_ip  — IP of the source node
+#   new_node_ip  — IP of the destination node
+#   ssh_user     — SSH user for both nodes
+#   ssh_key_path — SSH private key path
+
+- name: Migrate darkside data
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Create data directory on new node
+      command: >
+        ssh -i {{ ssh_key_path }} -o StrictHostKeyChecking=no
+        {{ ssh_user }}@{{ new_node_ip }}
+        "sudo mkdir -p /data/paas-data && sudo chmod 777 /data/paas-data"
+
+    - name: Copy darkside data to new node
+      command: >
+        rsync -avz --delete
+        -e "ssh -i {{ ssh_key_path }} -o StrictHostKeyChecking=no"
+        {{ ssh_user }}@{{ old_node_ip }}:/data/paas-data/
+        {{ ssh_user }}@{{ new_node_ip }}:/data/paas-data/
+      ignore_errors: true
+
+    - name: Fix permissions on new node
+      command: >
+        ssh -i {{ ssh_key_path }} -o StrictHostKeyChecking=no
+        {{ ssh_user }}@{{ new_node_ip }}
+        "sudo chmod -R 700 /data/paas-data"

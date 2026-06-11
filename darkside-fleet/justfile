@@ -1,0 +1,46 @@
+# darkside-fleet task runner. Install just with `brew install just`.
+# Run `just` (no args) to see this list.
+
+# Default: list recipes.
+default:
+    @just --list
+
+# Generate Go + TS bindings from .proto sources.
+proto:
+    GOWORK=off go run -modfile=tools/go.mod github.com/bufbuild/buf/cmd/buf generate
+
+# Generate the typed sqlite query layer.
+sqlc:
+    GOWORK=off go run -modfile=tools/go.mod github.com/sqlc-dev/sqlc/cmd/sqlc generate
+
+# Create a new versioned migration. Pass a snake_case name.
+new-migration name:
+    GOWORK=off go run -modfile=tools/go.mod github.com/pressly/goose/v3/cmd/goose -dir internal/db/migrations create {{name}} sql
+
+# Tidy Go module deps.
+tidy:
+    go mod tidy
+
+# Run darkside-fleet locally (starts web UI on :7373 by default).
+dev-backend:
+    go run ./cmd/darkside-fleet
+
+# Run the Vite dev server. Proxies API calls to :7373.
+dev-frontend:
+    cd frontend && pnpm run dev
+
+# Build a standalone Go binary with the frontend embedded.
+build-binary:
+    cd frontend && pnpm run build
+    rm -rf internal/frontend/dist
+    cp -r frontend/dist internal/frontend/dist
+    go build -o bin/darkside-fleet ./cmd/darkside-fleet
+
+# Wipe generated artifacts.
+clean:
+    rm -rf gen/ internal/frontend/dist frontend/dist frontend/src/gen frontend/node_modules bin/
+
+# Vet + build check.
+check:
+    go vet ./...
+    go build -o /dev/null ./cmd/darkside-fleet

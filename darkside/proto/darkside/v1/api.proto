@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package darkside.v1;
+
+// Generated Go lives at gen/go/darkside/v1 relative to the darkside module root.
+// Keep the import path here in sync with that module path.
+option go_package = "github.com/singaaka/darkside/gen/go/darkside/v1;darksidev1";
+
+// ---------------------------------------------------------------------------
+// HealthService — sanity ping the front-end uses to confirm the back-end is up.
+// ---------------------------------------------------------------------------
+service HealthService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
+
+message PingRequest {}
+message PingResponse {
+  string message = 1;
+  int64 timestamp_unix = 2;
+}
+message InfoRequest {}
+message InfoResponse {
+  string version = 1;
+  string domain = 2;
+}
+
+// ---------------------------------------------------------------------------
+// GitHubService — installation status + repo discovery.
+//
+// The manifest CREATION flow (POST a form to github.com/settings/apps/new) is
+// served as HTML at /github/manifest/start; GitHub redirects back to
+// /github/manifest/callback. Those are vanilla HTTP routes, not ConnectRPC.
+// Everything else is here.
+// ---------------------------------------------------------------------------
+service GitHubService {
+  rpc GetStatus(GetGitHubStatusRequest) returns (GetGitHubStatusResponse);
+  rpc ListInstallations(ListInstallationsRequest) returns (ListInstallationsResponse);
+  rpc ListInstallationRepos(ListInstallationReposRequest) returns (ListInstallationReposResponse);
+}
+
+message GetGitHubStatusRequest {}
+message GetGitHubStatusResponse {
+  bool connected = 1;
+  int64 app_id = 2;
+  string app_slug = 3;
+  string app_name = 4;
+  string html_url = 5;
+  string install_url = 6;
+}
+
+message Installation {
+  int64 id = 1;
+  string account_login = 2;
+  string account_type = 3;
+}
+
+message ListInstallationsRequest {}
+message ListInstallationsResponse {
+  repeated Installation installations = 1;
+}
+
+message Repo {
+  int64 id = 1;
+  string full_name = 2;
+  string default_branch = 3;
+  bool private = 4;
+  string description = 5;
+}
+
+message ListInstallationReposRequest {
+  int64 installation_id = 1;
+}
+message ListInstallationReposResponse {
+  repeated Repo repos = 1;
+}
+
+// ---------------------------------------------------------------------------
+// AppService — app records (the units darkside builds and deploys).
+//
+// The full-featured Create (with age key generation, branch/env_file/key_id)
+// lives at POST /api/v1/apps — see internal/server/apijson.go. The proto
+// Create here is the legacy minimal create, kept for back-compat.
+// ---------------------------------------------------------------------------
+service AppService {
+  rpc List(ListAppsRequest) returns (ListAppsResponse);
+  rpc Get(GetAppRequest) returns (App);
+  rpc Create(CreateAppRequest) returns (App);
+  // GetManifestSample returns a copy-pasteable darkside.toml pre-filled with
+  // the app name, branch, env_file, key_id and the age public key so the
+  // user can encrypt env files locally without round-tripping the dashboard.
+  rpc GetManifestSample(GetManifestSampleRequest) returns (GetManifestSampleResponse);
+}
+
+message App {
+  string id = 1;
+  string name = 2;
+  string repo_full_name = 3;
+  int64 installation_id = 4;
+  int64 created_at_unix = 5;
+}
+
+message ListAppsRequest {}
+message ListAppsResponse {
+  repeated App apps = 1;
+}
+message GetAppRequest { string id = 1; }
+message CreateAppRequest {
+  string name = 1;
+  string repo_full_name = 2;
+  int64 installation_id = 3;
+}
+message GetManifestSampleRequest { string app_id = 1; }
+message GetManifestSampleResponse { string toml = 1; }
+
+// ---------------------------------------------------------------------------
+// DeploymentService — list deployments and stream their live logs.
+// ---------------------------------------------------------------------------
+service DeploymentService {
+  rpc List(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+  rpc Get(GetDeploymentRequest) returns (Deployment);
+  // StreamLogs server-streams live log lines for a given (deployment, phase).
+  // When the phase is already finished, the persisted log is sent in one chunk
+  // and the stream closes.
+  rpc StreamLogs(StreamLogsRequest) returns (stream StreamLogsResponse);
+  // Redeploy creates a NEW deployment row from an existing one's commit SHA.
+  // Skips the build step if the image is still in the registry.
+  rpc Redeploy(RedeployRequest) returns (Deployment);
+}
+
+message Deployment {
+  string id = 1;
+  string app_id = 2;
+  string commit_sha = 3;
+  string commit_message = 4;
+  string image_tag = 5;
+  // pending|cloning|building|built|pre|deploying|post|succeeded|failed
+  string status = 6;
+  string nomad_job_hcl = 7;
+  string env_snapshot = 8;
+  string error = 9;
+  int64 started_at_unix = 10;
+  int64 finished_at_unix = 11;
+  // github|manual|rollback
+  string trigger_type = 12;
+  string trigger_branch = 13;
+}
+
+message ListDeploymentsRequest {
+  string app_id = 1;
+  int32 limit = 2;
+}
+message ListDeploymentsResponse {
+  repeated Deployment deployments = 1;
+}
+
+message GetDeploymentRequest { string id = 1; }
+
+message StreamLogsRequest {
+  string deployment_id = 1;
+  string phase = 2;  // build|pre|deploy|post
+}
+message StreamLogsResponse {
+  string chunk = 1;
+}
+
+message RedeployRequest { string deployment_id = 1; }

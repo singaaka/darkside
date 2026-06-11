@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package fleet.v1;
+
+option go_package = "github.com/singaaka/darkside-fleet/gen/go/fleet/v1;fleetv1";
+
+// ---------------------------------------------------------------------------
+// NodeService — provision and manage cluster nodes.
+// ---------------------------------------------------------------------------
+service NodeService {
+  rpc List(ListNodesRequest) returns (ListNodesResponse);
+  rpc Get(GetNodeRequest) returns (Node);
+  rpc Add(AddNodeRequest) returns (Node);
+  rpc Delete(DeleteNodeRequest) returns (DeleteNodeResponse);
+  rpc SetPaasNode(SetPaasNodeRequest) returns (Node);
+}
+
+message Node {
+  string id = 1;
+  string name = 2;
+  string public_ip = 3;
+  string ssh_user = 4;
+  string ssh_key_path = 5;
+  repeated string tags = 6;
+  bool is_darkside_paas_node = 7;
+  string status = 8; // pending|provisioning|active|draining|removed
+  string nomad_node_id = 9;
+  int64 created_at_unix = 10;
+}
+
+message ListNodesRequest {}
+message ListNodesResponse { repeated Node nodes = 1; }
+message GetNodeRequest { string id = 1; }
+message AddNodeRequest {
+  string name = 1;
+  string public_ip = 2;
+  string ssh_user = 3;
+  string ssh_key_path = 4;
+  repeated string tags = 5;
+}
+message DeleteNodeRequest { string id = 1; }
+message DeleteNodeResponse { bool ok = 1; }
+message SetPaasNodeRequest { string node_id = 1; }
+
+// ---------------------------------------------------------------------------
+// ClusterConfigService — per-node generated configs.
+// ---------------------------------------------------------------------------
+service ClusterConfigService {
+  rpc GetNodeConfig(GetNodeConfigRequest) returns (NodeConfig);
+}
+
+message NodeConfig {
+  string node_id = 1;
+  string nomad_hcl = 2;
+  string consul_hcl = 3;
+  string traefik_yml = 4;
+  int64 updated_at_unix = 5;
+}
+message GetNodeConfigRequest { string node_id = 1; }
+
+// ---------------------------------------------------------------------------
+// JobService — async work queue (add/delete/migrate operations).
+// ---------------------------------------------------------------------------
+service JobService {
+  rpc List(ListJobsRequest) returns (ListJobsResponse);
+  rpc Get(GetJobRequest) returns (Job);
+}
+
+message Job {
+  string id = 1;
+  string type = 2;   // add_node|update_cluster|delete_node|migrate_paas
+  string status = 3; // pending|running|done|failed
+  string payload = 4;
+  string output = 5;
+  int64 created_at_unix = 6;
+  int64 started_at_unix = 7;
+  int64 finished_at_unix = 8;
+}
+
+message ListJobsRequest { int32 limit = 1; }
+message ListJobsResponse { repeated Job jobs = 1; }
+message GetJobRequest { string id = 1; }
+
+// ---------------------------------------------------------------------------
+// PlaybookService — surfaces the Ansible playbooks the runner executes so
+// operators can audit exactly what's being applied to their nodes.
+// ---------------------------------------------------------------------------
+service PlaybookService {
+  rpc List(ListPlaybooksRequest) returns (ListPlaybooksResponse);
+  rpc Get(GetPlaybookRequest) returns (Playbook);
+}
+
+message Playbook {
+  string name = 1;        // filename relative to playbooks/, e.g. "setup_node.yml"
+  string content = 2;     // raw YAML
+  int64 size_bytes = 3;
+  string description = 4; // first-line comment if present
+}
+
+message ListPlaybooksRequest {}
+message ListPlaybooksResponse { repeated Playbook playbooks = 1; }
+message GetPlaybookRequest { string name = 1; }
+
+// ---------------------------------------------------------------------------
+// SettingsService — cluster-wide settings (domain, registry port, etc).
+// ---------------------------------------------------------------------------
+service SettingsService {
+  rpc Get(GetSettingsRequest) returns (Settings);
+  rpc Update(UpdateSettingsRequest) returns (Settings);
+}
+
+message Settings {
+  string domain = 1;
+  int32 registry_port = 2;
+  string darkside_paas_node_id = 3;
+}
+message GetSettingsRequest {}
+message UpdateSettingsRequest {
+  string domain = 1;
+  int32 registry_port = 2;
+}

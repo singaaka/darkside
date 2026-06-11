@@ -1,0 +1,190 @@
+# darkside — single-host development stack.
+#
+# Setup:
+#   1. cp darkside.example.toml darkside.toml   (edit `external_url`)
+#   2. cp .env.example .env                     (edit DARKSIDE_HOST, ACME_EMAIL,
+#                                                DARKSIDE_BASIC_AUTH)
+#   3. docker compose up -d --build
+#
+# What's running:
+#   - consul    service registry; allocations register here via nomad's consul
+#               integration, traefik reads the catalog
+#   - registry  private docker registry on 127.0.0.1:5000 (host-exposed so the
+#               daemon trusts it without insecure-registry config)
+#   - nomad     single-node cluster (server + client); spawns sibling
+#               containers via the mounted host socket
+#   - traefik   :80 / :443 / :8000  — public HTTPS + ACME + debug entrypoint
+#   - darkside  the PaaS itself, behind basic-auth at https://${DARKSIDE_HOST}
+#
+# Production setups use darkside-fleet to provision a real multi-host
+# nomad + consul cluster; this compose is the local dev path.
+
+services:
+  consul:
+    image: hashicorp/consul:1.20
+    container_name: darkside-consul
+    restart: unless-stopped
+    command:
+      - agent
+      - -dev
+      - -client=0.0.0.0
+      - -ui
+    ports:
+      - "8500:8500"  # API + UI
+    volumes:
+      - ./data/consul:/consul/data
+    networks:
+      - darkside
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  registry:
+    image: registry:2
+    container_name: darkside-registry
+    restart: unless-stopped
+    # Publish on loopback so the host docker daemon trusts it as
+    # localhost (no insecure-registry config needed).
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./data/registry:/var/lib/registry
+    networks:
+      - darkside
+
+  traefik:
+    image: traefik:v3.7.4
+    container_name: darkside-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      # Entrypoints:
+      #   - web      :80    ACME http-01 + redirect → https
+      #   - websecure:443   production HTTPS
+      #   - debug    :8000  catch-all → darkside, no Host check, loopback-only
+      - --entryPoints.web.address=:80
+      - --entryPoints.web.http.redirections.entryPoint.to=websecure
+      - --entryPoints.web.http.redirections.entryPoint.scheme=https
+      - --entryPoints.websecure.address=:443
+      - --entryPoints.debug.address=:8000
+      - --certificatesResolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesResolvers.letsencrypt.acme.storage=/data/acme.json
+      - --certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web
+      # docker provider routes darkside itself (it's a compose container).
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      # consulCatalog provider routes the apps darkside deploys via nomad.
+      # nomad's consul integration registers each alloc's service in consul,
+      # traefik reads it here.
+      - --providers.consulCatalog=true
+      - --providers.consulCatalog.endpoint.address=http://consul:8500
+      - --providers.consulCatalog.exposedByDefault=false
+      - --providers.consulCatalog.refreshInterval=5s
+      - --log.level=INFO
+      - --accessLog=true
+    environment:
+      DOCKER_API_VERSION: "1.43"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8000:8000"  # debug; SSH-tunnel to reach
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/traefik:/data
+    networks:
+      - darkside
+    depends_on:
+      consul:
+        condition: service_healthy
+      nomad:
+        condition: service_healthy
+
+  nomad:
+    image: hashicorp/nomad:1.10
+    container_name: darkside-nomad
+    restart: unless-stopped
+    privileged: true
+    cgroup: host
+    pid: host
+    environment:
+      NOMAD_SKIP_DOCKER_IMAGE_WARN: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - ./configs/nomad.hcl:/etc/nomad.d/nomad.hcl:ro
+      - ./data/nomad:/opt/nomad/data
+      - /tmp:/tmp
+    networks:
+      - darkside
+    ports:
+      - "4646:4646"
+    command:
+      - agent
+      - -config=/etc/nomad.d/nomad.hcl
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nomad agent-info > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 5s
+
+  darkside:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: darkside
+    restart: unless-stopped
+    depends_on:
+      nomad:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      registry:
+        condition: service_started
+    environment:
+      DARKSIDE_CONFIG: /etc/darkside/config.toml
+    volumes:
+      - ./darkside.toml:/etc/darkside/config.toml:ro
+      - ./data/darkside:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - darkside
+    labels:
+      - traefik.enable=true
+      # ── Debug catch-all on :8000 ─────────────────────────────────────────
+      - traefik.http.routers.darkside-debug.rule=PathPrefix(`/`)
+      - traefik.http.routers.darkside-debug.entrypoints=debug
+      - traefik.http.routers.darkside-debug.service=darkside
+      # ── Production HTTPS ─────────────────────────────────────────────────
+      - traefik.http.routers.darkside-tls.rule=Host(`${DARKSIDE_HOST}`)
+      - traefik.http.routers.darkside-tls.entrypoints=websecure
+      - traefik.http.routers.darkside-tls.tls.certresolver=letsencrypt
+      - traefik.http.routers.darkside-tls.middlewares=darkside-auth@docker
+      - traefik.http.routers.darkside-tls.service=darkside
+      # ── Webhook bypass (HTTPS, no auth, higher priority) ─────────────────
+      - traefik.http.routers.darkside-webhook.rule=Host(`${DARKSIDE_HOST}`) && PathPrefix(`/webhooks/`)
+      - traefik.http.routers.darkside-webhook.entrypoints=websecure
+      - traefik.http.routers.darkside-webhook.tls.certresolver=letsencrypt
+      - traefik.http.routers.darkside-webhook.priority=200
+      - traefik.http.routers.darkside-webhook.service=darkside
+      # OAuth callback also bypasses auth.
+      - traefik.http.routers.darkside-oauth.rule=Host(`${DARKSIDE_HOST}`) && (PathPrefix(`/auth/`) || PathPrefix(`/github/`))
+      - traefik.http.routers.darkside-oauth.entrypoints=websecure
+      - traefik.http.routers.darkside-oauth.tls.certresolver=letsencrypt
+      - traefik.http.routers.darkside-oauth.priority=150
+      - traefik.http.routers.darkside-oauth.service=darkside
+      # ── Service + middleware ─────────────────────────────────────────────
+      - traefik.http.services.darkside.loadbalancer.server.port=8080
+      - traefik.http.middlewares.darkside-auth.basicauth.users=${DARKSIDE_BASIC_AUTH}
+
+networks:
+  darkside:
+    name: darkside
+    driver: bridge
