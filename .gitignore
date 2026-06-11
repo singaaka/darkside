@@ -1,21 +1,5 @@
-# Go
-/darkside
-/bin/
-*.test
-*.out
-
-# Embedded frontend (built into binary)
-/internal/frontend/dist/
-
-# Frontend build
-/frontend/dist/
-/frontend/node_modules/
-
-# Runtime data
-/data/
-/darkside.toml
-/darkside.yaml
-.env
+# Go workspace
+go.work.sum
 
 # Editor
 .idea/
@@ -24,3 +8,23 @@
 
 # OS
 .DS_Store
+
+# darkside-paas
+darkside-paas/bin/
+darkside-paas/internal/frontend/dist/
+darkside-paas/frontend/dist/
+darkside-paas/frontend/node_modules/
+darkside-paas/data/
+darkside-paas/darkside.toml
+darkside-paas/.env
+darkside-paas/*.test
+darkside-paas/*.out
+
+# darkside-node-manager
+darkside-node-manager/bin/
+darkside-node-manager/internal/frontend/dist/
+darkside-node-manager/frontend/dist/
+darkside-node-manager/frontend/node_modules/
+darkside-node-manager/*.db
+darkside-node-manager/*.test
+darkside-node-manager/*.out

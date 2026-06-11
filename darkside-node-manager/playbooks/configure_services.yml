@@ -1,0 +1,62 @@
+---
+# configure_services.yml — write Nomad, Consul, and Traefik configs and start services.
+# Variables:
+#   nomad_hcl    — rendered nomad.hcl content
+#   consul_hcl   — rendered consul.hcl content
+#   traefik_yml  — rendered traefik.yml content
+
+- name: Configure and start cluster services
+  hosts: cluster
+  become: true
+
+  tasks:
+    - name: Write nomad.hcl
+      copy:
+        dest: /etc/nomad.d/nomad.hcl
+        content: "{{ nomad_hcl }}"
+      notify: restart nomad
+
+    - name: Write consul.hcl
+      copy:
+        dest: /etc/consul.d/consul.hcl
+        content: "{{ consul_hcl }}"
+      notify: restart consul
+
+    - name: Create Traefik config directory
+      file:
+        path: /etc/traefik
+        state: directory
+        mode: '0755'
+
+    - name: Create Traefik data directory
+      file:
+        path: /data/traefik
+        state: directory
+        mode: '0755'
+
+    - name: Write traefik.yml
+      copy:
+        dest: /etc/traefik/traefik.yml
+        content: "{{ traefik_yml }}"
+
+    - name: Enable and start Consul
+      systemd:
+        name: consul
+        enabled: yes
+        state: started
+
+    - name: Enable and start Nomad
+      systemd:
+        name: nomad
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart nomad
+      systemd:
+        name: nomad
+        state: restarted
+    - name: restart consul
+      systemd:
+        name: consul
+        state: restarted

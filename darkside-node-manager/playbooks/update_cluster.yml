@@ -1,0 +1,31 @@
+---
+# update_cluster.yml — update Nomad and Consul configs on ALL existing nodes
+# when the cluster membership changes (node added or removed).
+# Variables: same as configure_services.yml but applied to all hosts.
+
+- name: Update cluster membership configs
+  hosts: cluster
+  become: true
+
+  tasks:
+    - name: Write updated nomad.hcl
+      copy:
+        dest: /etc/nomad.d/nomad.hcl
+        content: "{{ nomad_hcl }}"
+      notify: restart nomad
+
+    - name: Write updated consul.hcl
+      copy:
+        dest: /etc/consul.d/consul.hcl
+        content: "{{ consul_hcl }}"
+      notify: restart consul
+
+  handlers:
+    - name: restart nomad
+      systemd:
+        name: nomad
+        state: restarted
+    - name: restart consul
+      systemd:
+        name: consul
+        state: restarted

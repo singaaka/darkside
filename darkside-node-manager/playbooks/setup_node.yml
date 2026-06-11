@@ -1,0 +1,193 @@
+---
+# setup_node.yml — install Docker, Nomad, Consul, and CNI plugins on a new node.
+# Variables:
+#   nomad_version  (default: 1.9.0)
+#   consul_version (default: 1.20.0)
+#   registry_addr  (default: empty — set to "host:port" to configure insecure registry)
+
+- name: Setup darkside cluster node
+  hosts: cluster
+  become: true
+  vars:
+    nomad_version: "1.9.0"
+    consul_version: "1.20.0"
+    cni_version: "1.5.1"
+    registry_addr: ""
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install system packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - unzip
+          - git
+        state: present
+
+    # ── Docker ───────────────────────────────────────────────────────────────
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repo
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Configure Docker daemon (insecure registry)
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "insecure-registries": ["{{ registry_addr }}"],
+            "log-driver": "json-file",
+            "log-opts": { "max-size": "50m", "max-file": "3" }
+          }
+      when: registry_addr != ""
+      notify: restart docker
+
+    # ── CNI plugins ───────────────────────────────────────────────────────────
+    - name: Create CNI plugin directory
+      file:
+        path: /opt/cni/bin
+        state: directory
+        mode: '0755'
+
+    - name: Download CNI plugins
+      get_url:
+        url: "https://github.com/containernetworking/plugins/releases/download/v{{ cni_version }}/cni-plugins-linux-amd64-v{{ cni_version }}.tgz"
+        dest: /tmp/cni-plugins.tgz
+
+    - name: Extract CNI plugins
+      unarchive:
+        src: /tmp/cni-plugins.tgz
+        dest: /opt/cni/bin
+        remote_src: yes
+
+    # ── Nomad ────────────────────────────────────────────────────────────────
+    - name: Download Nomad
+      get_url:
+        url: "https://releases.hashicorp.com/nomad/{{ nomad_version }}/nomad_{{ nomad_version }}_linux_amd64.zip"
+        dest: /tmp/nomad.zip
+
+    - name: Install Nomad binary
+      unarchive:
+        src: /tmp/nomad.zip
+        dest: /usr/local/bin
+        remote_src: yes
+        mode: '0755'
+
+    - name: Create Nomad directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/nomad.d
+        - /opt/nomad/data
+        - /opt/nomad/data/alloc
+
+    # ── Consul ────────────────────────────────────────────────────────────────
+    - name: Download Consul
+      get_url:
+        url: "https://releases.hashicorp.com/consul/{{ consul_version }}/consul_{{ consul_version }}_linux_amd64.zip"
+        dest: /tmp/consul.zip
+
+    - name: Install Consul binary
+      unarchive:
+        src: /tmp/consul.zip
+        dest: /usr/local/bin
+        remote_src: yes
+        mode: '0755'
+
+    - name: Create Consul directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/consul.d
+        - /opt/consul
+
+    # ── Systemd units ─────────────────────────────────────────────────────────
+    - name: Install Nomad systemd unit
+      copy:
+        dest: /etc/systemd/system/nomad.service
+        content: |
+          [Unit]
+          Description=Nomad
+          Documentation=https://www.nomadproject.io/docs
+          Wants=network-online.target consul.service
+          After=network-online.target consul.service
+
+          [Service]
+          ExecReload=/bin/kill -HUP $MAINPID
+          ExecStart=/usr/local/bin/nomad agent -config /etc/nomad.d
+          KillMode=process
+          KillSignal=SIGINT
+          LimitNOFILE=65536
+          LimitNPROC=infinity
+          Restart=on-failure
+          RestartSec=2
+          TasksMax=infinity
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: reload systemd
+
+    - name: Install Consul systemd unit
+      copy:
+        dest: /etc/systemd/system/consul.service
+        content: |
+          [Unit]
+          Description=Consul
+          Documentation=https://www.consul.io/docs
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          ExecReload=/bin/kill -HUP $MAINPID
+          ExecStart=/usr/local/bin/consul agent -config-dir /etc/consul.d
+          KillMode=process
+          KillSignal=SIGINT
+          LimitNOFILE=65536
+          LimitNPROC=infinity
+          Restart=on-failure
+          RestartSec=2
+          TasksMax=infinity
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: reload systemd
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted

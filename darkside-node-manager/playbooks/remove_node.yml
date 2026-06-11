@@ -1,0 +1,53 @@
+---
+# remove_node.yml — drain Nomad, stop services, and clean up a departing node.
+# Variables:
+#   nomad_node_id — the Nomad node ID to drain (if known)
+
+- name: Remove node from cluster
+  hosts: cluster
+  become: true
+  vars:
+    nomad_node_id: ""
+
+  tasks:
+    - name: Drain Nomad node
+      command: "nomad node drain -enable -yes {{ nomad_node_id }}"
+      environment:
+        NOMAD_ADDR: "http://127.0.0.1:4646"
+      when: nomad_node_id != ""
+      ignore_errors: true
+
+    - name: Stop Nomad service
+      systemd:
+        name: nomad
+        state: stopped
+        enabled: no
+      ignore_errors: true
+
+    - name: Stop Consul service
+      systemd:
+        name: consul
+        state: stopped
+        enabled: no
+      ignore_errors: true
+
+    - name: Remove Nomad data
+      file:
+        path: /opt/nomad/data
+        state: absent
+      ignore_errors: true
+
+    - name: Remove Consul data
+      file:
+        path: /opt/consul
+        state: absent
+      ignore_errors: true
+
+    - name: Remove service configs
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nomad.d/nomad.hcl
+        - /etc/consul.d/consul.hcl
+      ignore_errors: true
