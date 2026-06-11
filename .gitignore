@@ -21,6 +21,7 @@ darkside-paas/*.test
 darkside-paas/*.out
 
 # darkside-node-manager
+darkside-node-manager/darkside-node-manager
 darkside-node-manager/bin/
 darkside-node-manager/internal/frontend/dist/
 darkside-node-manager/frontend/dist/
